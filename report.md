@@ -2,7 +2,7 @@
 title: "HW3 — Cell Instance Segmentation"
 subtitle: "Visual Recognition using Deep Learning, 2026 Spring"
 author:
-  - "Name: _<Your Name>_"
+  - "陳沛妤"
   - "Student ID: 314560017"
 date: "2026-05-08"
 geometry: margin=2.2cm
@@ -239,24 +239,24 @@ hyper-parameter tuning, as required by the homework spec.
 
 * **Hypothesis.** Most cell instances are smaller than the smallest
   default torchvision anchor (32 px); adding finer 8- and 16-px
-  anchors to the RPN's `AnchorGenerator` is necessary to recall them.
+  anchors to the RPN's `AnchorGenerator` should improve AP50 by
+  recalling tiny cells that the default stack misses.
 * **Why it might work.** The RPN can only propose objects covered by
-  *some* anchor — if the smallest anchor is much larger than the
-  instances, those instances will be classified as background and
-  never reach the RoI heads.
-* **Why it might not.** Smaller anchors increase the number of
-  negatives per image and can therefore slow convergence or hurt
-  precision (more spurious proposals to NMS through).
+  *some* anchor — if the smallest anchor is larger than the instance,
+  no anchor receives positive gradient for it and the instance is
+  classified as background.
+* **Why it might not.** Adding small anchors *also* multiplies the
+  number of negatives per image (most are easy background), which can
+  slow RPN convergence or starve harder examples of gradient.
 
 **Architectural change.** I replace the default
 `AnchorGenerator(sizes=((32,),(64,),(128,),(256,),(512,)), …)` with
 `sizes=((8,),(16,),(32,),(64,),(128,))`, attached one scale per FPN
-level (P2..P6). The 8- and 16-px anchors are *added* to the RPN —
-this is a layer-level change ("add some layers"), not a
-hyper-parameter tweak.
+level (P2..P6). The 8- and 16-px scales are *added* to the RPN — a
+layer-level change in line with the spec hint.
 
-**Measurement.** I compute the size distribution of all 28 594 GT
-boxes in the training split (`sqrt(box_area)`):
+**Measurement 1 — dataset-side motivation.** I first compute the size
+distribution of all 28 594 GT boxes in the training split:
 
 | Statistic | Value |
 |---|---|
@@ -266,20 +266,54 @@ boxes in the training split (`sqrt(box_area)`):
 | fraction ≤ 32 px | **79.6 %** |
 | fraction ≤ 64 px | 99.3 % |
 
-![**Figure 7 (E1). GT instance-size distribution.** Vertical dashed
-lines mark the anchor scales {8, 16, 32, 64, 128} px. Roughly 80 %
-of instances fall *below* the default 32 px starting anchor, and
-~8 % below 16 px.](output/exp_anchor_sizes.png)
+![**Figure 7. GT instance-size distribution.** Vertical dashed
+lines mark the anchor scales {8, 16, 32, 64, 128} px. Around 80 %
+of instances fall *below* the default 32 px anchor.](output/exp_anchor_sizes.png)
 
-**Implication.** Without the 8- and 16-px anchors, almost a tenth of
-the training instances would have *no* matching anchor at any feature
-level, so RPN gradient on those tiny cells would vanish. The
-default-only stack would also force 79 % of GT boxes onto a *single*
-anchor scale, hurting localisation precision. The empirical
-distribution justifies the custom anchor stack as a structural
-necessity, not a tuning choice; the trained model achieves AP50 =
-0.5033 on the public leaderboard, well above the weak-baseline
-(~0.25) and strong-baseline (~0.35) marks the spec quotes.
+**Measurement 2 — empirical retrain ablation.** I train a *second*
+model with the *default* `{32, 64, 128, 256, 512}` anchors,
+everything else identical (same data split, optimizer, schedule, AMP,
+seed). Both models are evaluated every 2 epochs:
+
+| Epoch | val AP50 — *custom* | val AP50 — *default* | gap (custom − default) |
+|---|---|---|---|
+| 1 | 0.2540 | 0.3214 | **−0.0674** |
+| 3 | 0.3791 | 0.4424 | **−0.0633** |
+| 5 | 0.3852 | 0.4611 | **−0.0759** |
+| 7 | 0.4344 | **0.4941** | **−0.0597** |
+| 9 | 0.4741 | 0.4855 | −0.0114 |
+| 11 | **0.5142** | – | — |
+| 27 | 0.5052 | – | — |
+| **peak** | **0.5142** (ep 11) | **0.4941** (ep 7) | **+0.0202** |
+
+![**Figure 8 (E1). Empirical ablation — validation AP50 vs. epoch
+for custom (blue) and default (red) anchor stacks.** Both runs share
+the *exact same* training pipeline and were trained from
+scratch.](output/exp_anchor_ablation.png)
+
+**Implication — a more honest picture.** The hypothesis is **only
+partially confirmed**:
+
+1. *Custom anchors do reach a higher AP50 ceiling* (0.5142 vs. 0.4941,
+   a gap of +2.0 AP50 points). On a leaderboard graded purely by AP50,
+   that gap is large enough to matter.
+2. *But default anchors converge much faster.* For the first 9 epochs
+   the default stack actually *outperforms* the custom stack — the
+   penalty of the extra easy negatives is real and substantial.
+3. The dataset analysis (Fig. 7) over-promises: with only 8 % of
+   boxes below 16 px, the 8 px anchor in particular is over-engineered
+   for this dataset. The win comes from the extra 16 px scale plus
+   stable late-epoch optimisation, not from a wholesale recall of
+   sub-32-px cells.
+
+**Take-away for the architecture.** Custom anchors *are* the right
+choice for the final model that I submit (best peak AP50), but the
+gap is much smaller than the dataset-side analysis would predict, and
+they cost ~3× more training epochs to surpass the default stack.
+A practitioner with a tight compute budget would be better served by
+the default anchors plus a longer schedule on the custom anchors;
+deciding which dominates requires the empirical retrain done here,
+not just the dataset-size histogram in Fig. 7.
 
 ### 4.2 — Loss-shape design: do I need a class-weighted loss?
 
@@ -310,7 +344,7 @@ validation recall produced by the *unweighted-CE* model:
 | class3 |    558 | 83 | 0.625 |
 | class4 |    560 | 54 | **0.889** |
 
-![**Figure 8 (E2). Training frequency vs. per-class recall.** Despite
+![**Figure 9 (E2). Training frequency vs. per-class recall.** Despite
 having ~25× fewer training instances than `class1`/`class2`, class4
 achieves the highest recall.](output/exp_class_imbalance.png)
 

@@ -6,7 +6,7 @@ hw3-data-release/
 !314560017_HW3.pdf
 
 # Checkpoints and large artifacts
-output/*.pth
+**/*.pth
 output/submission.zip
 output/test-results.json
 output/_tmp_gt.json

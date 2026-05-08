@@ -43,6 +43,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backbone", type=str, default="resnet50",
                         choices=["resnet50", "resnet101"])
     parser.add_argument("--no_pretrained", action="store_true")
+    parser.add_argument("--default_anchors", action="store_true",
+                        help="Use the default torchvision anchors "
+                             "{32,64,128,256,512} instead of the custom "
+                             "{8,16,32,64,128} stack — for the §4.1 ablation.")
     parser.add_argument("--no_amp", action="store_true",
                         help="Disable mixed-precision training")
     parser.add_argument("--eval_interval", type=int, default=2)
@@ -198,7 +202,9 @@ def main() -> None:
         num_classes=5,
         backbone_name=args.backbone,
         pretrained_backbone=not args.no_pretrained,
+        default_anchors=args.default_anchors,
     )
+    print(f"Anchors: {'default torchvision' if args.default_anchors else 'custom (8/16/32/64/128)'}")
     n_params = count_trainable_parameters(model)
     print(f"Trainable parameters: {n_params/1e6:.2f}M")
     assert n_params < 200_000_000, "Model exceeds 200M trainable params!"

@@ -25,14 +25,18 @@ from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 
-def _build_anchor_generator() -> AnchorGenerator:
+def _build_anchor_generator(default_anchors: bool = False) -> AnchorGenerator:
     """Anchor sizes tuned for small cell instances.
 
     The default torchvision anchors start at 32 px which is too large for
     the smaller cell types in this dataset. We add 8 / 16 px anchors and
-    keep the common aspect ratios.
+    keep the common aspect ratios. Pass ``default_anchors=True`` to
+    reproduce the torchvision baseline (used for the §4.1 ablation).
     """
-    anchor_sizes = ((8,), (16,), (32,), (64,), (128,))
+    if default_anchors:
+        anchor_sizes = ((32,), (64,), (128,), (256,), (512,))
+    else:
+        anchor_sizes = ((8,), (16,), (32,), (64,), (128,))
     aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
     return AnchorGenerator(sizes=anchor_sizes, aspect_ratios=aspect_ratios)
 
@@ -46,6 +50,7 @@ def build_model(
     box_score_thresh: float = 0.05,
     box_nms_thresh: float = 0.5,
     box_detections_per_img: int = 500,
+    default_anchors: bool = False,
 ) -> MaskRCNN:
     """Build a Mask R-CNN with sensible defaults for cell segmentation.
 
@@ -81,7 +86,7 @@ def build_model(
         trainable_layers=trainable_backbone_layers,
     )
 
-    anchor_generator = _build_anchor_generator()
+    anchor_generator = _build_anchor_generator(default_anchors=default_anchors)
 
     box_roi_pool = torchvision.ops.MultiScaleRoIAlign(
         featmap_names=["0", "1", "2", "3"], output_size=7, sampling_ratio=2,

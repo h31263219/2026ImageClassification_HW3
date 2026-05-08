@@ -19,17 +19,45 @@ from markdown_pdf import MarkdownPdf, Section
 
 
 def _strip_yaml_front_matter(text: str) -> tuple[str, dict]:
+    """Tiny YAML parser that supports both `key: value` and list-style
+    keys (`key:` followed by `  - item` lines). Values returned for
+    list keys are joined with `; `."""
     meta: dict = {}
-    if text.startswith("---"):
-        end = text.find("\n---", 3)
-        if end != -1:
-            block = text[3:end]
-            text = text[end + 4:].lstrip("\n")
-            for line in block.splitlines():
-                m = re.match(r"^([A-Za-z][\w-]*)\s*:\s*(.*)$", line)
-                if m:
-                    meta[m.group(1).strip()] = m.group(2).strip().strip('"')
-    return text, meta
+    if not text.startswith("---"):
+        return text, meta
+    end = text.find("\n---", 3)
+    if end == -1:
+        return text, meta
+
+    block = text[3:end]
+    body = text[end + 4:].lstrip("\n")
+
+    current_key: str | None = None
+    current_list: list[str] = []
+    for raw in block.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        # list item under the previous key
+        if line.lstrip().startswith("- ") and current_key is not None:
+            current_list.append(line.lstrip()[2:].strip().strip('"'))
+            continue
+        # close any open list
+        if current_key is not None and current_list:
+            meta[current_key] = "; ".join(current_list)
+            current_key, current_list = None, []
+        m = re.match(r"^([A-Za-z][\w-]*)\s*:\s*(.*)$", line)
+        if m:
+            key, val = m.group(1).strip(), m.group(2).strip().strip('"')
+            if val == "":
+                current_key, current_list = key, []
+            else:
+                meta[key] = val
+    # flush any trailing list
+    if current_key is not None and current_list:
+        meta[current_key] = "; ".join(current_list)
+
+    return body, meta
 
 
 def _strip_pandoc_image_attrs(text: str) -> str:
