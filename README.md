@@ -1,7 +1,7 @@
 # NYCU Computer Vision 2026 HW3
 
 - **Student ID:** 314560017
-- **Name:** _<Your Name>_
+- **Name:** 陳沛妤
 
 ## Introduction
 
