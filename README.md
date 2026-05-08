@@ -16,11 +16,10 @@ FPN backbone, customised to handle the small, dense cell instances that
 dominate this dataset:
 
 1. **Custom anchor scales** (8/16/32/64/128 px) instead of the default
-   (32/64/128/256/512 px) — empirically motivated by the GT-instance
-   size distribution (median √area ≈ 23 px, see report §4.1).
-2. **Higher-resolution mask predictor** (rebuilt 4-conv head producing
-   56×56 masks) for sharper boundaries on tightly packed cells.
-3. **Two-LR-group AdamW** schedule with linear warm-up, mixed-precision
+   (32/64/128/256/512 px). An empirical retrain ablation in report
+   §4.1 confirms the custom stack lifts peak val AP50 from 0.4941
+   → 0.5142 (+0.020).
+2. **Two-LR-group AdamW** schedule with linear warm-up, mixed-precision
    training, gradient clipping, and a 90/10 train/val split (seed 42).
 
 Total trainable parameters: **43.94 M** — well under the 200 M cap
@@ -143,8 +142,14 @@ python visualize_predictions.py \
 # 4. Trainable-parameter breakdown (shows < 200 M cap)
 python model_size.py --out ./output/model_size.png
 
-# 5. Additional experiments (anchor distribution, score sweep, imbalance)
+# 5. Additional experiments (anchor sizes, score sweep, class imbalance)
 python experiments.py --exps anchor score imbalance
+
+# 6. §4.1 architectural ablation: retrain with default anchors
+python train.py --data_dir ./hw3-data-release \
+    --output_dir ./output_ablation_default_anchors \
+    --epochs 10 --batch_size 1 --eval_interval 2 --default_anchors
+python plot_anchor_ablation.py
 ```
 
 ## Project Structure
@@ -159,7 +164,8 @@ python experiments.py --exps anchor score imbalance
 ├── visualize.py              # Training curves + confusion matrix
 ├── visualize_predictions.py  # Qualitative prediction overlays
 ├── model_size.py             # Trainable-parameter audit
-├── experiments.py            # Additional experiments (E1/E2/E3)
+├── experiments.py            # Data-driven analyses (anchor / score / imbalance)
+├── plot_anchor_ablation.py   # Comparison plot for §4.1 retrain ablation
 ├── requirements.txt
 ├── README.md
 └── output/                   # Checkpoints, history.json, figures, predictions
